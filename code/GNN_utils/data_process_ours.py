@@ -10,6 +10,13 @@ from tqdm import tqdm
 from .mol_tree import Vocab, DGLMolTree
 from .chemutils import atom_features, get_mol, get_morgan_fp, bond_features,get_dgl_node_feature,get_dgl_bond_feature
 
+"""
+2. data_process_ours.py
+Contenuto: Gestisce il pre-processamento dei dati specifici per il progetto.
+Funzioni Principali:
+multi_process: Funzione per il pre-processamento parallelo dei dati.
+Dataset_multiprocess_ecfp: Classe che gestisce il dataset, particolarmente per le rappresentazioni ECFP delle molecole.
+Collator_ecfp: Funzione che prepara i batch di dati per il training."""
 
 def _unpack_field(examples, field):  # get batch examples (dictionary) values by key
     return [e[field] for e in examples]

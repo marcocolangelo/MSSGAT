@@ -9,6 +9,12 @@ from torch.nn.init import kaiming_uniform_,zeros_, constant_
 init_feats_size = 74  # 44 original 74 dgl
 init_efeats_size = None
 
+"""nnutils_ours.py
+Contenuto: Contiene le implementazioni delle reti neurali utilizzate nel progetto.
+Funzioni Principali:
+MLP_revised: Implementazione di un perceptron multistrato per la classificazione o la regressione.
+tree_gru_onehot_revised: Rete neurale che elabora gli alberi molecolari.
+GatEncoder_raw_gru_revised: Encoder che utilizza l'attenzione grafica per elaborare le caratteristiche grezze delle molecole."""
 
 # 2021/12/18 revised
 class MultiHead_gat(nn.Module):

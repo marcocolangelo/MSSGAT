@@ -7,6 +7,11 @@ from tqdm import tqdm
 
 from .chemutils import get_clique_mol, tree_decomp, get_mol, get_smiles
 
+"""mol_tree.py
+Contenuto: Definisce la struttura dati dell'albero molecolare e il vocabolario per le molecole.
+Funzioni Principali:
+Vocab: Classe che gestisce il vocabolario delle molecole, mappando le stringhe SMILES a indici numerici."""
+
 
 def get_Vocab(data_path = None): #对使用树分解后的分子的官能团簇写入词汇表 vocabulary.txt
     assert data_path is not None ,"Path to data must be required,plz check"
@@ -83,14 +88,21 @@ class Vocab(object):   #官能团词汇表hash函数，建立词表文件(txt):�
     def size(self):
         return len(self.vocab)
 
-
+"""Un DGLGraph è una struttura dati fornita dalla libreria Deep Graph Library (DGL), 
+progettata per rappresentare grafi in modo efficiente e per facilitare l'implementazione e l'addestramento di modelli di deep learning su grafi. """
+"""Nel contesto di MSSGAT, un DGLGraph viene utilizzato per rappresentare le molecole come grafi, dove gli atomi sono nodi e i legami chimici sono archi. 
+Questa rappresentazione consente di applicare modelli di attenzione sui grafi (Graph Attention Networks, GAT) 
+per apprendere rappresentazioni significative delle molecole, che possono poi essere utilizzate per predire proprietà molecolari."""
 class DGLMolTree(DGLGraph):
     def __init__(self, smiles):
         DGLGraph.__init__(self)
         self.nodes_dict = {}
 
         if smiles is None:
+            print("\n\n\n\n#############SMILES string is None#############\n\n\n\n")
             return
+        else:
+            print("molecole: ", smiles, "\n\n\n\n")
 
         self.smiles = smiles
         self.mol = get_mol(smiles)

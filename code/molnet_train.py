@@ -23,6 +23,9 @@ from GNN_utils.nnutils_ours import GatEnconder_tree_gru, GatEncoder_raw_gru, \
     tree_gru_onehot,raw_attention,raw_set2set,tree_gru_s2s,raw_gru_s2s,GatEncoder_raw_gru_s2s,tree_gru_onehot_s2s, \
     tri_gat,TrimNet, tree_gru_onehot_revised, GatEncoder_raw_gru_revised, MLP_residual
 
+"""Gestisce diversi dataset di MoleculeNet, come indicato dalle diverse condizioni nel caricamento dei dati 
+che controllano il nome del dataset (bace, bbbp, clintox, ecc.).
+Offre la flessibilità di utilizzare sia split casuali che split basati su scaffold, a seconda del dataset specifico."""
 
 class All_old2(nn.Module):
     def __init__(self, hidden_state_size, vocab_path,nums_task, head, conv, rhead, rconv):

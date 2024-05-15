@@ -2,6 +2,11 @@ import numpy as np
 import torch
 import os
 
+"""3. pytorchtools.py
+Contenuto: Strumenti specifici per PyTorch, come l'implementazione di tecniche di early stopping.
+Funzioni Principali:
+EarlyStopping: Classe che monitora una metrica di valutazione e ferma l'addestramento se la metrica non migliora oltre una certa soglia."""
+
 class EarlyStopping(object):
     """Early stops the training if validation loss doesn't improve after a given patience."""
     def __init__(self, patience=10, verbose=False, delta=0, dataset_name=None,model_save_path=None):

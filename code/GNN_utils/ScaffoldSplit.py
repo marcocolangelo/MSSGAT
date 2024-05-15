@@ -7,8 +7,16 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 import random
 import numpy as np
 
+"""ScaffoldSplit.py
+Contenuto: Implementa metodi per dividere i dati chimici basandosi su scaffold, una struttura chimica comune.
+Funzioni Principali:
+puoi scegliere uno dei metodi tra scaffold_split,random_scaffold_split e scaffold_randomized_spliting_xiong per dividere i dati in training, validation e test set."""
 
 
+""" 
+Generare scaffold molecolari, che sono parti della molecola costituite da anelli e atomi collegati tra loro.
+Gli scaffold Murcko sono una rappresentazione strutturale delle molecole che evidenzia gli anelli 
+e gli atomi colleganti tra di loro, escludendo i gruppi laterali."""
 class ScaffoldGenerator(object):
     """
     Generate molecular scaffolds.
@@ -45,7 +53,31 @@ def generate_scaffold(smiles, include_chirality=False):
     scaffold = engine.get_scaffold(mol)
     return scaffold
 
+"""
+La funzione split viene utilizzata per selezionare scaffold molecolari casuali 
+da un dizionario di scaffold e verificare che la suddivisione del dataset sia bilanciata. 
+viene utilizzata per bilanciare la suddivisione del dataset durante il processo di training di modelli di machine learning. 
+Specificamente, serve a selezionare un sottoinsieme di scaffold molecolari in modo che le classi minoritarie siano 
+adeguatamente rappresentate nel dataset di training. La funzione assicura che il numero di molecole selezionate sia ottimale e bilanciato, 
+basandosi su parametri come minor_count, minor_class, count e optimal_count. 
+Questa suddivisione equilibrata è cruciale per migliorare le prestazioni del modello e prevenire il bias verso le classi maggioritarie.
 
+Parametri:
+scaffolds_dict: Dizionario con scaffold come chiavi e indici di molecole come valori.
+    Lo scaffolds_dict è fondamentale per creare suddivisioni bilanciate del dataset basate sugli scaffold molecolari. Questo dizionario contiene gli scaffold come chiavi e le liste degli indici delle molecole che appartengono a ciascuno scaffold come valori. 
+    Generato dalla funzione scaffold_randomized_spliting_xiong.
+smiles_tasks_df: DataFrame contenente SMILES e task associati.
+tasks: Lista di task.
+weights: Pesi per bilanciare le classi.
+sample_size: Numero di scaffold da selezionare.
+random_seed: Seme per la randomizzazione.
+
+Attributi:
+minor_count: Conta il numero di molecole appartenenti alla classe minoritaria per ciascun scaffold.
+minor_class: Identifica la classe minoritaria tra le classi nel dataset, la classe che ha il minor numero di esempi o istanze nel dataset probabilmente,qui espresso tramite pesi
+count: Conta il numero totale di molecole per ciascun scaffold.
+optimal_count: Il numero ideale di molecole da selezionare per bilanciare il dataset basato su una distribuzione target.
+"""
 def split(scaffolds_dict, smiles_tasks_df, tasks, weights, sample_size, random_seed=0):
     count = 0
     minor_count = 0
@@ -63,6 +95,9 @@ def split(scaffolds_dict, smiles_tasks_df, tasks, weights, sample_size, random_s
         minor_count = len(smiles_tasks_df.iloc[index, :][smiles_tasks_df[tasks[0]] == minor_class])
     #     print(random)
     return scaffold, index
+"""Nel contesto della funzione `split` definita in `ScaffoldSplit.py`, 
+l'output `scaffold` rappresenta un sottoinsieme di scaffold molecolari selezionati in base a determinati criteri di bilanciamento del dataset. 
+L'output `index` rappresenta gli indici delle molecole nel dataset originale che corrispondono ai scaffold selezionati."""
 
 
 def scaffold_randomized_spliting_xiong(smiles_tasks_df, tasks:list,weights:list,random_seed=8):
@@ -79,7 +114,7 @@ def scaffold_randomized_spliting_xiong(smiles_tasks_df, tasks:list,weights:list,
             all_scaffolds_dict[scaffold].append(index)
     #     smiles_tasks_df['scaffold'] = scaffold_list
 
-    samples_size = int(len(all_scaffolds_dict.keys()) * 0.1)
+    samples_size = int(len(all_scaffolds_dict.keys()) * 0.1) # 10% of the scaffold will be used
     test_scaffold, test_index = split(all_scaffolds_dict, smiles_tasks_df, tasks, weights, samples_size,
                                       random_seed=random_seed)
     training_scaffolds_dict = {x: all_scaffolds_dict[x] for x in all_scaffolds_dict.keys() if x not in test_scaffold}
@@ -89,8 +124,8 @@ def scaffold_randomized_spliting_xiong(smiles_tasks_df, tasks:list,weights:list,
     training_scaffolds_dict = {x: training_scaffolds_dict[x] for x in training_scaffolds_dict.keys() if
                                x not in valid_scaffold}
     train_index = []
-    for ele in training_scaffolds_dict.values():
-        train_index += ele
+    for ele in training_scaffolds_dict.values(): 
+        train_index += ele  
     assert len(train_index) + len(valid_index) + len(test_index) == len(smiles_tasks_df)
 
     return train_index, valid_index, test_index
@@ -107,7 +142,9 @@ def generate_scaffold_hu(smiles, include_chirality=False):
         smiles=smiles, includeChirality=include_chirality)
     return scaffold
 
-
+"""Questo file implementa una suddivisione basata sugli scaffold in modo deterministico. 
+La funzione split seleziona scaffold molecolari in modo sistematico per creare suddivisioni bilanciate del dataset, a
+ssicurando che le classi minoritarie siano rappresentate adeguatamente."""
 def scaffold_split(dataset, smiles_list, task_idx=None, null_value=0,
                    frac_train=0.8, frac_valid=0.1, frac_test=0.1,
                    return_smiles=False):
@@ -189,7 +226,11 @@ def scaffold_split(dataset, smiles_list, task_idx=None, null_value=0,
         return train_dataset, valid_dataset, test_dataset, (train_smiles,
                                                             valid_smiles,
                                                             test_smiles)
+    
 
+"""Questo file implementa una strategia di suddivisione completamente casuale basata sugli scaffold. 
+La funzione split seleziona gli scaffold in modo completamente casuale, 
+senza alcun tentativo di bilanciamento, ma piuttosto per valutare la robustezza del modello rispetto alle suddivisioni casuali."""
 def random_scaffold_split_hu(dataset, smiles_list, task_idx=None, null_value=0,
                    frac_train=0.8, frac_valid=0.1, frac_test=0.1, seed=0):
     """

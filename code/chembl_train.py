@@ -19,6 +19,12 @@ from GNN_utils.mol_tree import Vocab
 from GNN_utils.ScaffoldSplit import scaffold_randomized_spliting_xiong
 from GNN_utils.nnutils_ours import MLP_revised, tree_gru_onehot_revised, GatEncoder_raw_gru_revised
 
+"""Utilizza un dataset specifico, presumibilmente da ChEMBL, 
+e sembra concentrarsi su un singolo tipo di task (class), come indicato dalla lista tasks = ['class'].
+Utilizza uno split basato su scaffold per dividere i dati, 
+che è comune nei dataset chimici per mantenere la diversità chimica tra i set di training e test."""
+
+
 def show_figure_loss(train_loss, val_loss, test_loss, trn_roc, val_roc, test_roc):
     plt.figure('Training Process')  # Create art board
     plt.plot(train_loss, 'r-', label='train loss', )
@@ -53,14 +59,18 @@ class All_old(nn.Module):
         self.vocab = Vocab([x.strip("\r\n ") for x in open(vocab_path)])
         self.hidden_state_size = hidden_state_size
 
+        #initialization of the tree fragmentator layer
         self.GATencoder = tree_gru_onehot_revised(vocab=self.vocab, hidden_size=self.hidden_state_size,
                                           head_nums=head,conv_nums=conv)
+        
+        #initialization of the raw molecule feature extractor
         self.GATencoder_raw = GatEncoder_raw_gru_revised(hidden_size=self.hidden_state_size,
                                                  head_nums=rhead,conv_nums=rconv)
-
+        #initialization of the DNN for the ECFP
         self.dnn_ecfp = MLP_revised(n_feature=512, n_hidden=[256, 128],
                                     n_output=self.hidden_state_size, dropout=0.1)
-
+        
+        #initialization of the final classification layer
         self.classify = MLP_revised(self.hidden_state_size * 3, [32],  # [64,32],[128]
                                     2*nums_task, dropout=0.1)
 
@@ -69,6 +79,7 @@ class All_old(nn.Module):
 
 
     def forward(self, data, device):
+        #fp means fingerprint
         _, raw, fp = self.to_device(data, device)
         raw_h, x_r = self.GATencoder_raw(raw)
         tree = self.test_(data['mol_trees'],raw_h,device)
@@ -90,8 +101,12 @@ class All_old(nn.Module):
         assert len(tree) == len(raw_h)
         all_data = []
         for i in range(len(raw_h)):
-            tt = tree[i].nodes_dict
+            tt = tree[i].nodes_dict # nodes_dict contiene i dettagli di tutti i nodi (o vertici) di quell'albero.
             r = raw_h[i]
+
+            #una clique è un sottoinsieme di vertici di un grafo tale che ogni due vertici distinti sono adiacenti. 
+            # In altre parole, una clique in un grafo è un sottoinsieme di vertici che formano un sottografo completo. 
+            # Un sottografo completo è un sottografo in cui ogni coppia di vertici è connessa da un arco.
             cliques = []
             for key in tt:
                 clique = tt[key]['clique']
@@ -130,6 +145,8 @@ def data_load():
                                                                       weights=task_weights, random_seed=args['seed'])
 
     print("============Processing Data============")
+    print("argomenti: ")
+    print(args)
     multi_process(X=load_data.iloc[trn_index].Smiles,y=y[trn_index],data_type='train',vocab_path=args['vocab'], data_name = dataset_name,workers=args['workers'],reprocess = args['reprocess'])
     multi_process(X=load_data.iloc[val_index].Smiles,y=y[val_index],data_type='val',vocab_path=args['vocab'], data_name = dataset_name,workers=args['workers'],reprocess = args['reprocess'])
     multi_process(X=load_data.iloc[test_index].Smiles,y=y[test_index],data_type='test',vocab_path=args['vocab'], data_name = dataset_name,workers=args['workers'],reprocess = args['reprocess'])
@@ -173,6 +190,7 @@ def model_bulid(weights,tasks):
 
 
 def train(model, trn, val, test):
+    """Early stops the training if validation loss doesn't improve after a given patience."""
     earlystop = EarlyStopping(args['patience'], verbose=True, dataset_name=dataset_name, model_save_path=args['save'])
 
     file = open(args['save'] + '/train_info.txt', 'w')
@@ -182,7 +200,8 @@ def train(model, trn, val, test):
     trn_roc_list, val_roc_list, test_roc_list = [], [], []
     for e in range(args['epochs']):
         trn_loss = model.train(trn)
-        if args['trn']:
+        
+        if args['trn']:  # verbose the roc-score in training data
             _, trn_roc = model.eval(trn)
             trn_roc_list.append(trn_roc)
 
@@ -233,6 +252,8 @@ def train(model, trn, val, test):
 def main():
     trn, val, test, weights, tasks = data_load()
     model = model_bulid(weights, tasks)
+    #questa riga sotto il commento l'hai aggiunta tu perchè il training ti restituisce errore a 246, m = args['model'] !
+    args['model'] = model.__class__.__name__
     train(model, trn, val, test)
 
 
@@ -259,9 +280,10 @@ if __name__ == "__main__":
                         help='patience when training if `earlystop` is used')
     parser.add_argument('--workers', type=int, default=8,
                         help='workers for data pre-process')
-    parser.add_argument('--trn', default=False, action='store_true',
+    parser.add_argument('--trn',default=False, action='store_true',
                         help='whether verbose the training roc')
     parser.add_argument('--save', default='./result_save', help='path to save model and result')
+    parser.add_argument("--vocab", default="/home/marco/MSSGAT_paper/MSSGAT/code/dataset/vocabulary_chembl.txt", help="path to vocab file, l'hai aggiunto tu questo argomento!")
     parser.add_argument('--head', default=4, type=int)
     parser.add_argument('--conv', default=2, type=int)
     parser.add_argument('--rhead', default=4, type=int)
@@ -283,7 +305,7 @@ if __name__ == "__main__":
         os.makedirs(args['save'])
 
     # vocab_path = './dataset/vocab_tree_zinc.txt'
-    vocab_path = './dataset/vocabulary_chembl.txt'
+    vocab_path = '/home/marco/MSSGAT_paper/MSSGAT/code/dataset/vocabulary_chembl.txt'
     print(vocab_path)
     args['vocab'] = vocab_path
 

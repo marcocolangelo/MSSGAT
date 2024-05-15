@@ -8,6 +8,13 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
+#utils.py
+""" Contenuto: Contiene funzioni di utilità generali per il progetto.
+Funzioni Principali:
+Model_molnet: Classe che gestisce il modello di rete neurale, inclusi l'ottimizzatore e il criterio di perdita.
+set_seed: Imposta il seed per la generazione di numeri casuali, garantendo la riproducibilità degli esperimenti.
+get_valid: Filtra e valida i dati, assicurando che siano adatti per l'addestramento del modello. """
+
 
 def set_seed(seed=1):
     random.seed(seed)
@@ -77,6 +84,9 @@ def get_valid(load_data, shuffle=False, random_seed=42):
     return load_data
 
 
+""" **Scopo**: Questa classe è progettata per gestire modelli di classificazione, 
+dove l'output è tipicamente una probabilità di appartenenza a una classe. 
+È particolarmente adatta per problemi di classificazione binaria o multiclasse."""
 
 class Model_molnet(object):
     def __init__(self, model, optimizer, criterion, scheduler, device, tasks):
@@ -91,28 +101,39 @@ class Model_molnet(object):
     def train(self, dataloader):
         # Training
         loss_list = []
-        self.model.train()
+        self.model.train()   # set the model to training mode -> cosa tipica di nn.Module di PyTorch e serve solo per certe funzioni
         for it, batchs in enumerate(tqdm(dataloader, desc='===Training process')):
-            logits = nn.Softmax()(self.model(batchs,self.device))
+            logits = nn.Softmax()(self.model(batchs, self.device))  # calculate the probabilities of each class using the softmax function passing as input the output of the model (output del classification layer)
             loss = 0.0
-            for i, task in enumerate(self.tasks):
-                y_pred = logits[:, i * 2:(i + 1) * 2]
-                y_val = batchs['class'][:, i]
-                vaildInds = (np.where((y_val == 0) | (y_val == 1))[0]).astype('int64')
+            for i, task in enumerate(self.tasks): # ci sono più task supportate, tutte di classificazione, ciascuna però per classificare una proprietà diversa
+                """In questo caso, logits è presumibilmente un array bidimensionale
+                La porzione delle colonne selezionata dipende dal valore di i. 
+                Per esempio, se i è 0, allora l'operazione di slicing selezionerà le colonne da 0 a 2 (2 escluso). 
+                Se i è 1, selezionerà le colonne da 2 a 4, e così via. In altre parole, per ogni incremento di i, vengono selezionate le due colonne successive.
+                La struttura logits[:, i * 2:(i + 1) * 2] seleziona le probabilità di appartenenza a ciascuna classe per il task i andando di due in due 
+                perché ogni task potrebbe avere associati due valori di probabilità, ad esempio per una classificazione binaria dove si ha 
+                una probabilità per la classe positiva e una per la classe negativa.
+                Quindi, andando di due in due si riesce a estrarre in modo corretto e ordinato le probabilità relative a ciascuna classe per il task i.
+                """
+                y_pred = logits[:, i * 2:(i + 1) * 2] # prendi le probabilità di appartenenza a ciascuna classe per il task i 
+                
+                #y_val è la ground truth
+                y_val = batchs['class'][:, i] # prendi l'etichetta della classe per il task i dai batch di classificazione
+                vaildInds = (np.where((y_val == 0) | (y_val == 1))[0]).astype('int64') # prendi gli indici dei dati validi
                 if len(vaildInds) == 0:
                     continue
                 y_val_adjust = np.array([y_val[v] for v in vaildInds]).astype('int64')
-                vaildInds = torch.tensor(vaildInds,device=self.device).squeeze()
-                y_pred_adjust = torch.index_select(y_pred, 0, vaildInds)
+                vaildInds = torch.tensor(vaildInds,device=self.device).squeeze() #For example, if you have an array of shape (A, 1, B, 1, C) and you apply squeeze(), you will get a new array of shape (A, B, C)
+                y_pred_adjust = torch.index_select(y_pred, 0, vaildInds) #is selecting elements from the y_pred tensor. The second argument, 0, specifies the dimension along which to select elements. The third argument, validInds, should be a 1-D tensor containing the indices of the elements to be selected.
                 loss += self.criterion[i](y_pred_adjust, torch.tensor(y_val_adjust,device=self.device))
 
             self.optimizer.zero_grad()  # clear gradients for next train
             loss.backward()  # backpropagation, compute gradients
-            self.optimizer.step()  # update
+            self.optimizer.step()  # update the weights according to the backpropagation 
 
             loss_list.append(loss.cpu().detach().numpy())
 
-        self.scheduler.step()
+        self.scheduler.step() # update the learning rate and similar according to the pre-programmed scheduler
 
         return np.array(loss_list).mean()
 
@@ -158,6 +179,9 @@ class Model_molnet(object):
 
         return np.array(loss_list).mean(), np.array(all_eval_roc).mean()
 
+"""
+- **Scopo**: Questa classe è orientata verso problemi di regressione, dove l'output è un valore continuo. 
+È ideale per la previsione di proprietà fisiche o chimiche che sono rappresentate come valori scalari."""
 
 class Model_rmse(object):
     def __init__(self,model, optimizer, criterion, scheduler,device):
