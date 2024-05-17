@@ -81,12 +81,12 @@ class All_old(nn.Module):
     def forward(self, data, device):
         #fp means fingerprint
         _, raw, fp = self.to_device(data, device)
-        raw_h, x_r = self.GATencoder_raw(raw)
+        raw_h, x_r = self.GATencoder_raw(raw) #equivale a self.GATencoder_raw.forward(raw) where x_r has shape [batch_size,hidden_state_size] -  not confirmed
         tree = self.test_(data['mol_trees'],raw_h,device)
         self.mol_output, x_t = self.GATencoder(tree)
         x_fp = self.dnn_ecfp(fp)
-        x = torch.cat([x_t, x_r, x_fp], dim=-1)
-        y = self.classify(x)
+        x = torch.cat([x_t, x_r, x_fp], dim=-1) #shape [batch_size,hidden_state_size*3]  - not confirmed
+        y = self.classify(x) #shape [batch_size,2*nums_task] - not confirmed
         return y
 
 

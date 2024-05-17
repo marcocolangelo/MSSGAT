@@ -17,68 +17,114 @@ tree_gru_onehot_revised: Rete neurale che elabora gli alberi molecolari.
 GatEncoder_raw_gru_revised: Encoder che utilizza l'attenzione grafica per elaborare le caratteristiche grezze delle molecole."""
 
 # 2021/12/18 revised
+""""
+La classe MultiHead_gat implementa una variante multi-testa della rete di attenzione grafica (GAT).
+
+Metodi:
+- __init__(self, node_feats, heads=3, negative_slope=0.2): Inizializza la rete con il numero di caratteristiche dei nodi, il numero di teste di attenzione e il coefficiente angolare negativo della funzione LeakyReLU.
+- message_func(self, edges): Calcola i messaggi tra i nodi, determinando i coefficienti di attenzione e preparando i messaggi da passare ai nodi di destinazione.
+- reduce_func(self, nodes): Aggrega i messaggi ricevuti dai nodi di destinazione, normalizzando i coefficienti di attenzione, pesando le caratteristiche dei nodi sorgente, e aggiornando le caratteristiche dei nodi di destinazione.
+- forward(self, graph, h): Definisce il passaggio in avanti della rete, trasformando le caratteristiche dei nodi, applicando l'attenzione multi-testa tramite `update_all` e aggiornando le caratteristiche dei nodi.
+
+Legami tra le Funzioni:
+- `message_func` e `reduce_func` sono collegate tramite `update_all`, che gestisce il passaggio dei messaggi tra i nodi del grafo. `message_func` calcola i messaggi da inviare ai nodi di destinazione, mentre `reduce_func` aggrega questi messaggi per aggiornare le caratteristiche dei nodi di destinazione.
+- `forward` chiama `update_all` per orchestrare l'interazione tra `message_func` e `reduce_func`, assicurando che i messaggi siano calcolati, inviati e aggregati correttamente per aggiornare le caratteristiche dei nodi nel grafo.
+"""
+
 class MultiHead_gat(nn.Module):
-    def __init__(self, node_feats, heads=3, negative_slope=0.2):
+    def __init__(self, node_feats, heads=3, negative_slope=0.2):  #num caratteristiche nodi, numero teste e coeff angolare della LeakyReLU sono gli argomenti
         super(MultiHead_gat, self).__init__()
         self.node_feats = node_feats
         self.heads = heads
         self.negative_slope = negative_slope
 
-        self.weight_node = nn.Linear(node_feats, node_feats*heads,bias=True)
-        self.weight_triplet_att = Parameter(torch.Tensor(1, heads, 2*node_feats))
-        self.weight_scale = Parameter(torch.Tensor(heads*node_feats, node_feats))
-        self.bias = Parameter(torch.Tensor(node_feats))
-        self.ln = nn.LayerNorm(node_feats)
+        self.weight_node = nn.Linear(node_feats, node_feats*heads,bias=True) # nn.Linear: applica una trasformazione lineare ai dati in ingresso con input shape (node_feats) e output shape (node_feats*heads)
+        """1: che è la Dimensione batch, specifica che i pesi sono applicati a ciascun batch singolarmente. Qui, è impostato su 1 poiché il peso di attenzione è calcolato per ogni batch individualmente.
+        heads: Numero di teste di attenzione e Specifica il numero di meccanismi di attenzione paralleli. Ogni testa di attenzione apprende una rappresentazione differente delle relazioni tra i nodi.
+        2 * node_feats: Numero totale di caratteristiche concatenate dai nodi sorgente e destinazione. 2 * node_feats rappresenta la concatenazione delle caratteristiche del nodo sorgente e del nodo destinazione. Ogni nodo ha node_feats caratteristiche, quindi la concatenazione delle caratteristiche di due nodi richiede 2 * node_feats."""
+        self.weight_triplet_att = Parameter(torch.Tensor(1, heads, 2*node_feats)) #weight_triplet_att: pesi per la funzione di attenzione triplet (1, heads, 2*node_feats) 
+       
+        """La funzione di scala si riferisce alla trasformazione lineare applicata alle caratteristiche aggregate delle teste di attenzione. 
+        Questo step ridimensiona le caratteristiche aggregate per riportarle alla dimensione originale dei nodi, 
+        assicurando che le nuove caratteristiche combinate siano nella giusta scala per l'input successivo. 
+        Questo è essenziale per mantenere coerenza nelle dimensioni delle caratteristiche durante le fasi successive di elaborazione."""
+        self.weight_scale = Parameter(torch.Tensor(heads*node_feats, node_feats)) #weight_scale: pesi per la funzione di scala (heads*node_feats, node_feats)
+        self.bias = Parameter(torch.Tensor(node_feats)) #bias: bias aggiunto alla funzione di scala (node_feats)
+        self.ln = nn.LayerNorm(node_feats) #applica la normalization alle caratteristiche dei nodi
         self.dropout = nn.Dropout(0.1)
-        self.reset_parameters()
+        self.reset_parameters() #meotodo per inizializzare i parametri del modello
 
 
     def reset_parameters(self):
-        kaiming_uniform_(self.weight_triplet_att)
-        kaiming_uniform_(self.weight_scale)
-        zeros_(self.bias)
+        kaiming_uniform_(self.weight_triplet_att) #initialize the input Tensor with values using a Kaiming uniform distribution.
+        kaiming_uniform_(self.weight_scale) #initialize the input Tensor with values using a Kaiming uniform distribution.
+        zeros_(self.bias) #initialize the input Tensor with zeros.
 
+    """Questa funzione determina i coefficienti di attenzione e e prepara i messaggi da passare tra i nodi in una rete di attenzione grafica multi-testa.
+    obbligatoria per una classe DGLGraph per calcolare i messaggi da inviare tra i nodi ed ha sempre come firma message_func(self, edges).
+    Alla fine quindi per ogni testa di attenzione avremo un vettore di coefficienti di dimensione num_edge, quindi ogni arco avrà un peso
+    Passata alla funzione update_all() di un DGLGraph avviene tutto in automatico"""
     def message_func(self, edges):
-        u,v =  edges.src['wv'],edges.dst['wv']
-        u = u.view(-1,self.heads,self.node_feats)  # node_size, head_nums, dims
-        v = v.view(-1,self.heads,self.node_feats)
-        tmp = torch.cat([u,v],dim=-1)
-        attn = tmp * self.weight_triplet_att
-        attn = torch.sum(attn,dim=-1,keepdim=True)
-        attn = F.leaky_relu(attn,self.negative_slope)
-        return {'attn': attn,'u': u}
+        u,v =  edges.src['wv'],edges.dst['wv'] #extract the source and destination node features from the edges
+        """view: Returns a new tensor with the same data but different size. It is the same data as the original tensor but with a different shape.
+        -1 means the size of the dimension is inferred from the number of elements in the tensor and the remaining dimensions.
+        since u and v are taken from the edges which have been modified by the Linear function, they have shape (edge_size,node_feats*head) where node_size is the number of nodes in the graph
+        so we reshape them to (edge_size,heads,node_feats) where node_size is the number of nodes in the graph."""
+        u = u.view(-1,self.heads,self.node_feats)  # with view we can reshape the tensor to the desired shape (edge_size,heads,node_feats) where node_size is the number of nodes in the graph
+        v = v.view(-1,self.heads,self.node_feats) # with view we can reshape the tensor to the desired shape (edge_size,heads,node_feats) where node_size is the number of nodes in the graph
+        tmp = torch.cat([u,v],dim=-1) #concatenate the source and destination node features along the last dimension so now we have shape (edge_size,heads,2*node_feats)
+        attn = tmp * self.weight_triplet_att #broadcast, only the first dimension change between the two variables
+        attn = torch.sum(attn,dim=-1,keepdim=True) #sum the last dimension and keep the dimension so now we have shape (edge_size,heads,1)
+        attn = F.leaky_relu(attn,self.negative_slope) #apply the LeakyReLU activation function to the attention scores so now we still have shape (edge_size,heads,1)
+        return {'attn': attn,'u': u} #this function through update_all() will send the attention scores and the source node features to the destination nodes
 
+    """Questa funzione calcola la somma pesata delle caratteristiche dei nodi vicini e aggiorna le caratteristiche dei nodi in una rete di attenzione grafica multi-testa.
+    obbligatoria per una classe DGLGraph per calcolare i messaggi da inviare tra i nodi ed ha sempre come firma reduce_func(self, nodes).
+    Passata ala funzione update_all() di un DGLGraph avviene tutto in automatico"""
     def reduce_func(self, nodes):
-        score = F.softmax(nodes.mailbox['attn'], dim=1)
-        result = torch.sum(score*nodes.mailbox['u'],dim=1)
-        result = result.view(-1,self.heads*self.node_feats)
-        result = torch.matmul(result, self.weight_scale)
-        return {'h_new': result + self.bias}
+        """nodes.mailbox è una struttura di DGL che raccoglie i messaggi da tutti gli edge in ingresso per ogni nodo di destinazione.
+        Quando message_func è chiamata, i risultati vengono inviati a nodes.mailbox dei nodi di destinazione quindi
+        nodes.mailbox['attn'] ha dimensione (num_nodes, num_incoming_edges, heads, 1)
+        nodes.mailbox['u'] ha dimensione (num_nodes, num_incoming_edges, heads, node_feats)
+        """
+        score = F.softmax(nodes.mailbox['attn'], dim=1) #apply the softmax function to the attention scores -> shape (num_nodes, num_incoming_edges, heads, 1)
+        result = torch.sum(score*nodes.mailbox['u'],dim=1)  #sum the source node features weighted by the attention scores along the indoming_edges dimension -> from shape (num_nodes, num_incoming_edges, heads, node_feats) to shape (num_nodes, num_incoming_edges, heads, node_feats) and then sum along the heads dimension so now we have shape (num_nodes, heads, node_feats)
+        result = result.view(-1,self.heads*self.node_feats) #reshape the result to the original shape of the node features -> shape (num_nodes,heads*node_feats)
+        result = torch.matmul(result, self.weight_scale) #apply the linear transformation to the result -> shape (num_nodes,node_feats)
+        return {'h_new': result + self.bias} #return the new node features after the GAT layer -> shape (num_nodes,node_feats)
 
+    """Questa funzione definisce il passaggio in avanti della rete di attenzione grafica multi-testa.
+    Viene chiamata quando si passa un grafo e le caratteristiche dei nodi alla rete.
+    h rappresenta le caratteristiche dei nodi quindi shape (node_size,node_feats) e graph rappresenta il grafo"""
     def forward(self, graph, h ):
         with graph.local_scope(): # operation not affect the original graph data
             # import pdb;pdb.set_trace()
-            wv = self.weight_node(h)
+            wv = self.weight_node(h) #wv shape (node_size,heads*node_feats)
             graph.ndata['wv'] = wv
 
             tmp = h
-            graph.update_all(self.message_func, self.reduce_func)
+            graph.update_all(self.message_func, self.reduce_func) #send and receive the messages between the nodes using message_func and update the node features using the reduce_func
             h = graph.ndata.pop('h_new')
 
-            return self.dropout(F.relu(self.ln(h + tmp)))
+            return self.dropout(F.relu(self.ln(h + tmp))) #apply the dropout, the ReLU activation function and the normalization to the new node features and return them
 
+"""La classe tree_gru_onehot_revised implementa una rete neurale che elabora gli alberi molecolari.
+Metodi:
+- __init__(self, vocab, hidden_size, head_nums, conv_nums): Inizializza la rete con il vocabolario, la dimensione nascosta, il numero di teste e il numero di convoluzioni.
+- forward(self, g): Definisce il passaggio in avanti della rete, applicando la proiezione lineare alle caratteristiche dei nodi, eseguendo le convoluzioni e calcolando il readout finale.
+"""
 class tree_gru_onehot_revised(nn.Module):
     def __init__(self, vocab,hidden_size, head_nums, conv_nums):
-        super(tree_gru_onehot_revised, self).__init__()
+        super(tree_gru_onehot_revised, self).__init__() #call the __init__ method of the parent class nn.Module 
 
-        self.hidden_size = hidden_size
+        self.hidden_size = hidden_size #shape of the hidden representationm 
         self.head_nums = head_nums
         self.conv_nums = conv_nums
 
         self.vocab_size = vocab.size()
         self.vocab = vocab
-        self.embedding = nn.Embedding(self.vocab_size, hidden_size)
-        self.project = nn.Linear(self.vocab_size + hidden_size, hidden_size)
+        self.embedding = nn.Embedding(self.vocab_size, hidden_size) #so we use an encoding layer to encode the node features using a vocabulary with outpu shape (vocab_size,hidden_size)
+        self.project = nn.Linear(self.vocab_size + hidden_size, hidden_size) #apply a linear transformation to the node features to project them to the hidden size
         # self.project = nn.Linear(hidden_size,hidden_size)
 
         self.convs = nn.ModuleList([MultiHead_gat(hidden_size, heads=head_nums) for _ in range(self.conv_nums)])
@@ -86,32 +132,40 @@ class tree_gru_onehot_revised(nn.Module):
         self.gru_readout = GRU_ReadOut(self.hidden_size, self.hidden_size, )
 
     def forward(self, g):
-        with g.local_scope():
+        with g.local_scope(): # operation not affect the original graph data
             device = g.device
+            """One-Hot Encoding: Crea una rappresentazione one-hot dei nodi basata sugli ID del vocabolario (wid).
+            Utilizza scatter_ per impostare le colonne corrispondenti agli ID dei nodi (wid) a 1."""
             one_hot = torch.zeros(g.number_of_nodes(), self.vocab_size).to(device)
-            one_hot.scatter_(dim=1, index=g.ndata['wid'].unsqueeze(dim=1),
-                             src=torch.ones(g.number_of_nodes(), self.vocab_size).to(device))
-            # g.ndata['h'] = torch.cat([one_hot,self.embedding(g.ndata['wid'])],dim=-1)
+            one_hot.scatter_(dim=1, index=g.ndata['wid'].unsqueeze(dim=1), 
+                             src=torch.ones(g.number_of_nodes(), self.vocab_size).to(device)) #scatter the one hot encoding of the node features to the nodes so now we have shape (node_size,vocab_size) to encode the nodes
+            #one_hot shape (num_nodes,vocab_size)
 
-            g.ndata['h'] = torch.cat([one_hot, g.ndata['h']], dim=-1)
-            h = g.ndata.pop('h')
-            h = self.project(h)
+            """Concatenazione e Proiezione: Concatena la rappresentazione one-hot con le caratteristiche dei nodi e proietta la combinazione in una nuova rappresentazione nascosta.
+            La rappresentazione one-hot viene concatenata con le caratteristiche originali dei nodi (h).
+            Viene utilizzato un layer lineare (self.project) per proiettare la combinazione in una nuova rappresentazione nascosta di dimensione hidden_size."""
+            g.ndata['h'] = torch.cat([one_hot, g.ndata['h']], dim=-1) #shape (num_nodes,vocab_size+hidden_size)
+            h = g.ndata.pop('h') #remove the node features from the graph and store them in h so still h has shape (num_nodes,vocab_size+hidden_size)
+            h = self.project(h) #apply the linear transformation to the node features to project them to the hidden size -> shape (num_nodes,hidden_size)
             g.ndata.update({'h': h})
 
             # print(h.device)
-
+            """Convoluzione Multi-Head GAT: Applica una serie di convoluzioni Multi-Head GAT e calcola la media delle caratteristiche dei nodi.
+            Le rappresentazioni nascoste vengono passate attraverso una serie di strati Multi-Head GAT.
+            Dopo ogni strato, la media delle caratteristiche dei nodi viene calcolata e aggiunta a una lista (gru_list)."""
             gru_list = []
-            gru_list.append(dgl.mean_nodes(g,'h'))
+            gru_list.append(dgl.mean_nodes(g,'h')) #shape (batch_size, hidden_size)
             for convs in self.convs:
-                h = convs.forward(g,h)
-                g.ndata['h'] = h
-                gru_list.append(dgl.mean_nodes(g,'h'))
+                h = convs.forward(g,h) #apply the GAT convolution to the node features so shape (num_nodes,hidden_size)
+                g.ndata['h'] = h 
+                gru_list.append(dgl.mean_nodes(g,'h')) #calculate the mean of the node features
 
-            out,h = self.gru_readout(gru_list)
-            h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru
-            return None, h.squeeze(0)  # reduce dimension
+            """"Aggregazione tramite GRU: Utilizza la GRU per aggregare le rappresentazioni nascoste e calcola la media delle rappresentazioni finali."""
+            out,h = self.gru_readout(gru_list) #apply the GRU readout to the node features so shape of out: (batch_size, seq_len, num_directions * hidden_size) h:(num_layers * num_directions, batch_size, hidden_size)
+            h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru   #shape (1, batch_size, hidden_size)
+            return None, h.squeeze(0)  # reduce dimension so now h's size is (batch_size, hidden_size)
 
-
+"""La classe GatEncoder_raw_gru_revised implementa un encoder che utilizza l'attenzione grafica per elaborare le caratteristiche grezze delle molecole."""
 class GatEncoder_raw_gru_revised(nn.Module):
     def __init__(self, hidden_size, head_nums, conv_nums, input_size = None):
         super(GatEncoder_raw_gru_revised, self).__init__()
@@ -120,6 +174,8 @@ class GatEncoder_raw_gru_revised(nn.Module):
             self.in_size = init_feats_size
         else:
             self.in_size = input_size
+
+        #notice that for row molecule representation we don't need to use the vocab
 
         self.hidden_size = hidden_size
         self.head_nums = head_nums
@@ -133,25 +189,25 @@ class GatEncoder_raw_gru_revised(nn.Module):
 
     def forward(self, g):
         with g.local_scope():
-            h = g.ndata.pop('h')
-            h = self.project(h)
+            h = g.ndata.pop('h') #remove the node features from the graph and store them in h so still h has shape (num_nodes,in_size)
+            h = self.project(h) #apply the linear transformation to the node features to project them to the hidden size -> shape (num_nodes,hidden_size)
             g.ndata.update({'h': h})
 
             gru_list = []
             gru_list.append(dgl.mean_nodes(g,'h'))
-            for convs in self.convs:
-                h = convs.forward(g,h)
+            for convs in self.convs: 
+                h = convs.forward(g,h) #apply the GAT convolution to the node features so shape (num_nodes,hidden_size)
                 g.ndata['h'] = h
-                gru_list.append(dgl.mean_nodes(g,'h'))
+                gru_list.append(dgl.mean_nodes(g,'h')) #calculate the mean of the node features so shape (batch_size, hidden_size)
 
-            out,h = self.gru_readout(gru_list)
-            h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru
+            out,h = self.gru_readout(gru_list) #apply the GRU readout to the node features so shape of out: (batch_size, seq_len, num_directions(so 2) * hidden_size) h:(num_layers(likely 2) * num_directions (so 2), batch_size, hidden_size)
+            h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru #shape (1, batch_size, hidden_size)
 
             from dgl import unbatch
-            return [hh.ndata['h'] for hh in unbatch(g)], h.squeeze(0)
+            return [hh.ndata['h'] for hh in unbatch(g)], h.squeeze(0) #reduce dimension so now h's size is (batch_size, hidden_size)
 
 
-
+# non usata non serve studiarla
 class tree_gru_onehot_only(nn.Module):
     def __init__(self, vocab,hidden_size, head_nums, conv_nums):
         super(tree_gru_onehot_only, self).__init__()
@@ -194,7 +250,7 @@ class tree_gru_onehot_only(nn.Module):
             h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru
             return None, h.squeeze(0)  # reduce dimension
 
-
+# non usata non serve studiarla
 class GatEncoder_raw_gru_only(nn.Module):
     def __init__(self, hidden_size, head_nums, conv_nums, input_size = None):
         super(GatEncoder_raw_gru_only, self).__init__()
@@ -238,6 +294,9 @@ class GatEncoder_raw_gru_only(nn.Module):
 
 
 # GAT conv layer
+"""La classe GATLayer implementa un singolo strato di attenzione grafica (Graph Attention Network, GAT). 
+Questo strato esegue operazioni di attenzione sui nodi di un grafo, 
+calcolando coefficienti di attenzione per gli archi e aggiornando le caratteristiche dei nodi in base a queste attenzioni."""
 class GATLayer(nn.Module):
     def __init__(self, in_feats, out_feats):
         super(GATLayer, self).__init__()
@@ -246,17 +305,19 @@ class GATLayer(nn.Module):
         # bn
         self.bn = nn.BatchNorm1d(out_feats)
 
+#calcola i coefficienti di attenzione per gli archi del grafo.
     def edge_attention(self, edges):
-        concat_z = torch.cat([edges.src['z'], edges.dst['z']], dim=1)
+        concat_z = torch.cat([edges.src['z'], edges.dst['z']], dim=1) #z means nodes features but after linear transformation
         src_e = self.attention_func(concat_z)
-        src_e = F.leaky_relu(src_e)  # 得到边的注意力系数
-        return {'e': src_e}  # 返回边的更新结果
+        src_e = F.leaky_relu(src_e)  # Ottenere i coefficienti di attenzione degli archi
+        return {'e': src_e}  # Restituisce il risultato dell'aggiornamento dell'arco
 
-    def message_func(self, edges):  # message函数只有边使用
-        return {'z': edges.src['z'], 'e': edges.data['e']}  # 存入mailbox中的内容,记录目标点dst接受到的信息,mailbox按顶点的入度进行3维tensor矩阵分类
+#Definisce i messaggi che vengono inviati lungo gli archi.
+    def message_func(self, edges):  # La funzione messaggio viene utilizzata solo dagli archi
+        return {'z': edges.src['z'], 'e': edges.data['e']}  # Memorizza il contenuto della mailbox, registra le informazioni ricevute dal punto di destinazione dst e la mailbox classifica la matrice tensoriale tridimensionale in base all'incidenza dei vertici.
 
-    def reduce_func(self, nodes):  # reduce函数只有节点使用
-        a = F.softmax(nodes.mailbox['e'], dim=1)  # a是经softmax处理的注意力系数
+    def reduce_func(self, nodes):  # La funzione reduce è utilizzata solo dai nodi
+        a = F.softmax(nodes.mailbox['e'], dim=1)  # a è il coefficiente di attenzione elaborato con softmax
         h = torch.sum(a * nodes.mailbox['z'], dim=1)
         return {'h': h}
 
@@ -264,12 +325,12 @@ class GATLayer(nn.Module):
         z = self.linear_func(h)
         graph.ndata['z'] = z
         graph.apply_edges(self.edge_attention)  # Apply the function on the edges to update their features.
-        graph.update_all(self.message_func, self.reduce_func)  # send和rev函数的组合,方便的api
+        graph.update_all(self.message_func, self.reduce_func)  # Combinazione di funzioni di invio e di rev, una comoda API.
 
         # bn
         temp_h = graph.ndata['h']
-        h = self.bn(F.relu(temp_h))
-        graph.ndata.update({'h': h})
+        h = self.bn(F.relu(temp_h)) # Update the node features and apply the batch normalization
+        graph.ndata.update({'h': h}) # Update the node features
 
         return graph
 
