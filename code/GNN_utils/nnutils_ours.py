@@ -203,8 +203,15 @@ class GatEncoder_raw_gru_revised(nn.Module):
             out,h = self.gru_readout(gru_list) #apply the GRU readout to the node features so shape of out: (batch_size, seq_len, num_directions(so 2) * hidden_size) h:(num_layers(likely 2) * num_directions (so 2), batch_size, hidden_size)
             h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru #shape (1, batch_size, hidden_size)
 
+            """La funzione unbatch(g) è utilizzata per decomporre un grafo batch nei suoi singoli grafi costituenti. 
+            Nel contesto della classe GatEncoder_raw_gru_revised, unbatch(g) viene utilizzato per estrarre le caratteristiche dei nodi dai singoli grafi dopo che il grafo batch è stato processato. 
+            Questo permette di ottenere le rappresentazioni delle caratteristiche per ciascun grafo individuale all'interno del batch."""
             from dgl import unbatch
-            return [hh.ndata['h'] for hh in unbatch(g)], h.squeeze(0) #reduce dimension so now h's size is (batch_size, hidden_size)
+            """restituisce 2 cose:
+            - una lista di tensori contenenti le caratteristiche dei nodi per ciascun grafo individuale nel batch quindi dimensione (num_graph,num_nodes_in_graph, hidden_size)
+            - la rappresentazione finale aggregata delle caratteristiche per il batch di grafi quindi dimensione (hidden_size)
+            """
+            return [hh.ndata['h'] for hh in unbatch(g)], h.squeeze(0) 
 
 
 # non usata non serve studiarla
@@ -293,7 +300,7 @@ class GatEncoder_raw_gru_only(nn.Module):
 
 
 
-# GAT conv layer
+# GAT conv layer non usati perchè sostituiti da MultiHead_gat
 """La classe GATLayer implementa un singolo strato di attenzione grafica (Graph Attention Network, GAT). 
 Questo strato esegue operazioni di attenzione sui nodi di un grafo, 
 calcolando coefficienti di attenzione per gli archi e aggiornando le caratteristiche dei nodi in base a queste attenzioni."""
@@ -318,7 +325,7 @@ class GATLayer(nn.Module):
 
     def reduce_func(self, nodes):  # La funzione reduce è utilizzata solo dai nodi
         a = F.softmax(nodes.mailbox['e'], dim=1)  # a è il coefficiente di attenzione elaborato con softmax
-        h = torch.sum(a * nodes.mailbox['z'], dim=1)
+        h = torch.sum(a * nodes.mailbox['z'], dim=1) # Calcola la somma pesata delle caratteristiche dei nodi sorgente usando i coefficienti di attenzione
         return {'h': h}
 
     def forward(self, graph, h):
@@ -334,6 +341,7 @@ class GATLayer(nn.Module):
 
         return graph
 
+#rispetto al a GATLayer, GATLayer_revised ha aggiunto la batch normalization, dropout e la funzione di attivazione ReLU con alpha configurabile
 class GATLayer_revised(nn.Module):
     def __init__(self, in_feats, out_feats):
         super(GATLayer_revised, self).__init__()
@@ -368,7 +376,7 @@ class GATLayer_revised(nn.Module):
 
             return h
 
-
+# non usato quindi ignoro
 class GATLayer_adde(nn.Module):
     def __init__(self, in_feats, out_feats):
         super(GATLayer_adde, self).__init__()
@@ -412,6 +420,7 @@ class GATLayer_adde(nn.Module):
 
 
 ######## 6/26 revise by yexianbin
+# not used
 class self_atten(nn.Module):
     def __init__(self):
         super(self_atten, self).__init__()
@@ -424,7 +433,7 @@ class self_atten(nn.Module):
 
         return context
 
-
+# not used
 class mutip_attention(nn.Module):
     def __init__(self, nhead, hidden_size):
         super(mutip_attention, self).__init__()
@@ -453,7 +462,7 @@ class mutip_attention(nn.Module):
         output = self.fc(context)
         return self.layernorm(output + residual)
 
-
+# not used
 class raw_attention(nn.Module):  # V1.0.1
     def __init__(self, hidden_size, head_nums, conv_nums, input_size = None):
         super(raw_attention, self).__init__()
@@ -504,24 +513,30 @@ class raw_attention(nn.Module):  # V1.0.1
 
 
 ################################# gru readout
+"""
+La classe GRU_ReadOut implementa una rete GRU (Gated Recurrent Unit) bidirezionale con due strati, seguita da una proiezione lineare delle caratteristiche. 
+Questa classe è progettata per aggregare le rappresentazioni apprese da più convoluzioni GAT e ottenere una rappresentazione finale per ciascun nodo o grafo.
+ex.in tree_gru_onehot_revised sopra     out,h = self.gru_readout(gru_list) """
 class GRU_ReadOut(nn.Module):
     def __init__(self,in_feats,hidden_feats,dropout = 0.0):
         super(GRU_ReadOut,self).__init__()
         self.in_feats = in_feats
+        """La GRU è bidirezionale e a due strati, il che permette di catturare le dipendenze a lungo termine in entrambe le direzioni temporali. 
+        Questo è utile per ottenere rappresentazioni più ricche delle sequenze di input."""
         self.gru = nn.GRU(in_feats, hidden_feats,batch_first=True,dropout=dropout,num_layers=2,bidirectional=True) #(batch_size,seq_len,in_features)
-        self.linear_project = nn.Linear(init_feats_size,hidden_feats)
+        self.linear_project = nn.Linear(init_feats_size,hidden_feats) #Questo assicura che le dimensioni delle caratteristiche siano coerenti con quelle attese dalla GRU
 
     def forward(self,x):
-        if x[0].shape[-1] != self.in_feats:
-            x.append(self.linear_project(x[0]))
+        if x[0].shape[-1] != self.in_feats: #Questo è importante per garantire che le dimensioni delle caratteristiche siano corrette prima di passare attraverso la GRU.
+            x.append(self.linear_project(x[0])) #shape 
             x = x[-1:] + x[1:-1]
 
         batch_size,feats = x[0].shape
         tmp_list = [it.view(batch_size,-1,feats) for it in x] # (batch_size,feats) -> (batch_size,1,feats)
         x = torch.cat(tmp_list,dim=1) # # (batch_size,1,feats) -> (batch_size,num_conv,feats)
-        return self.gru(x)
+        return self.gru(x) # apply the GRU to the node features so now shape of out: (batch_size, seq_len, num_directions (so 2) * hidden_size) h:(num_layers * num_directions (so 2), batch_size, hidden_size)
 
-
+#saltato perchè non usato
 # GAT model by gru readout
 class GatEnconder_tree_gru(nn.Module):  # Graph conv for tree_mol V1.0
     def __init__(self, vocab, hidden_size, embedding=None):
@@ -574,7 +589,7 @@ class GatEnconder_tree_gru(nn.Module):  # Graph conv for tree_mol V1.0
 
         # return mol_tree_batch, out[:,-1,:]
 
-
+#usata la versione revised che trovi sopra
 class GatEncoder_raw_gru(nn.Module):  # V1.0.1
     def __init__(self, hidden_size, head_nums, conv_nums, input_size=None):
         super(GatEncoder_raw_gru, self).__init__()
@@ -621,6 +636,10 @@ class GatEncoder_raw_gru(nn.Module):  # V1.0.1
 
 
 # 2021/12/16 add set2set readout
+# not used
+"""La classe Set2Set implementa un meccanismo di lettura per i grafi non diretti ovvero per i grafi in cui non esiste una direzione specifica tra i nodi.
+Questo meccanismo di lettura è utile per aggregare le rappresentazioni dei nodi in un grafo e ottenere una rappresentazione complessiva del grafo.
+"""
 from dgl.nn import Set2Set
 class GatEncoder_raw_gru_s2s(nn.Module):
     def __init__(self, hidden_size, head_nums, conv_nums, input_size = None):
@@ -682,7 +701,7 @@ class GatEncoder_raw_gru_s2s(nn.Module):
             h = torch.mean(h, dim=0, keepdim=True)  # add 2 layer gru
             return h.squeeze(0)  # reduce dimension
 
-
+# not used
 class tree_gru_onehot_s2s(nn.Module):
     def __init__(self, vocab,hidden_size, head_nums, conv_nums):
         super(tree_gru_onehot_s2s, self).__init__()
@@ -753,7 +772,7 @@ class tree_gru_onehot_s2s(nn.Module):
             return None, h.squeeze(0)  # reduce dimension
 
 
-
+#usata la versione tree_gru_onehot_revised sopra
 class tree_gru(nn.Module):  # V1.0.1
     def __init__(self, vocab,hidden_size, head_nums, conv_nums):
         super(tree_gru, self).__init__()
@@ -1357,7 +1376,8 @@ class FocalLoss(nn.Module):
         else:
             return F_loss
 
-
+"""La classe MLP_revised serve a costruire un modello di rete neurale feedforward con layer nascosti e dropout
+è il layer usato per analizzare le stringhe ECFP e alla fine come blocco di classificazione"""
 class MLP_revised(nn.Module):
     def __init__(self,n_feature,n_hidden:list,n_output = 2,dropout=0.2):
         super(MLP_revised,self).__init__()
@@ -1369,7 +1389,7 @@ class MLP_revised(nn.Module):
 
         self.predict = nn.Sequential()
         self.predict.add_module('dropout_input',nn.Dropout(dropout)) # input_layers: dropout first
-        for idx,(in_,out_) in enumerate(zip(self.layers[:-1],self.layers[1:])):
+        for idx,(in_,out_) in enumerate(zip(self.layers[:-1],self.layers[1:])): 
             self.predict.add_module('linear{}'.format(idx),nn.Linear(in_,out_))  # add_module(dict): key -> nn.Module
             # self.predict.add_module('relu{}'.format(idx), nn.ReLU())
             self.predict.add_module('bn{}'.format(idx),nn.BatchNorm1d(out_))
@@ -1383,7 +1403,7 @@ class MLP_revised(nn.Module):
         return self.predict(x)
 
 
-
+"""la differenza con MLP_revised è che MLP_residual aggiunge un blocco residuale tra i layer nascosti """
 class MLP_residual(nn.Module):
     def __init__(self,n_feature,n_hidden:list,n_output = 2,dropout=0.2):
         super(MLP_residual,self).__init__()
@@ -1461,6 +1481,8 @@ class Residual(nn.Module):  # test
 # TrimNet Test 2021/12/17
 from torch.nn.init import kaiming_uniform_, zeros_
 from torch.nn import Parameter
+
+#non usato perchè c'è MultiHead_gat al suo posto
 class MultiHead(nn.Module):
     def __init__(self, node_feats, e_feats, heads=3, negative_slope=0.2):
         super(MultiHead, self).__init__()
@@ -1528,7 +1550,7 @@ class Block(torch.nn.Module):
                 h = self.ln(h.squeeze(0))
             return h
 
-
+"""TrimNet sg"""
 class TrimNet(torch.nn.Module):
     def __init__(self, hidden_dim=32, depth=3, heads=4, dropout=0.1, outdim=2):
         super(TrimNet, self).__init__()

@@ -58,7 +58,7 @@ def show_figure_loss(train_loss, val_loss, test_loss, trn_roc, val_roc, test_roc
     plt.savefig(save_path + '_roc.pdf')
 
 
-
+""" **Scopo**: Questa funzione è progettata per filtrare e validare i dati, garantendo che siano adatti per l'addestramento del modello."""
 def get_valid(load_data, shuffle=False, random_seed=42):
     from rdkit import Chem
     # get the valid mol
@@ -109,6 +109,10 @@ class Model_molnet(object):
                 """In questo caso, logits è presumibilmente un array bidimensionale
                 La porzione delle colonne selezionata dipende dal valore di i. 
                 Per esempio, se i è 0, allora l'operazione di slicing selezionerà le colonne da 0 a 2 (2 escluso). 
+
+                Nel contesto del modello MSSGAT, il modello esegue più compiti di classificazione contemporaneamente (multi-task learning). 
+                Ogni task può avere un numero diverso di classi, ma nel caso specifico del codice, sembra che ogni task abbia due classi (binaria).
+
                 Se i è 1, selezionerà le colonne da 2 a 4, e così via. In altre parole, per ogni incremento di i, vengono selezionate le due colonne successive.
                 La struttura logits[:, i * 2:(i + 1) * 2] seleziona le probabilità di appartenenza a ciascuna classe per il task i andando di due in due 
                 perché ogni task potrebbe avere associati due valori di probabilità, ad esempio per una classificazione binaria dove si ha 
@@ -137,18 +141,19 @@ class Model_molnet(object):
 
         return np.array(loss_list).mean()
 
+
     def eval(self, dataloader):
         y_true_list = defaultdict(list)
         y_pred_list = defaultdict(list)
         loss_list = []
-        self.model.eval()
-        with torch.no_grad():
+        self.model.eval() # set the model to evaluation mode
+        with torch.no_grad(): # disable gradient calculation because we are not training
             for it, batchs in enumerate(dataloader):
-                logits = nn.Softmax()(self.model(batchs, self.device))
+                logits = nn.Softmax()(self.model(batchs, self.device)) # calculate the probabilities of each class using the softmax function passing as input the output of the model (output del classification layer)
                 loss = 0.0
                 for i, task in enumerate(self.tasks):
-                    y_pred = logits[:, i * 2:(i + 1) * 2]
-                    y_val = batchs['class'][:, i]
+                    y_pred = logits[:, i * 2:(i + 1) * 2] # prendi le probabilità di appartenenza a ciascuna classe per il task i (tutte le task sonoo di classificazione binaria)
+                    y_val = batchs['class'][:, i] # prendi l'etichetta della classe per il task i dai batch di classificazione
                     vaildInds = (np.where((y_val == 0) | (y_val == 1))[0]).astype('int64')
                     if len(vaildInds) == 0:
                         continue
@@ -157,27 +162,27 @@ class Model_molnet(object):
                     y_pred_adjust = torch.index_select(y_pred, 0, vaildInds)
                     loss += self.criterion[i](y_pred_adjust, torch.tensor(y_val_adjust, device=self.device))
 
-                    pred_positive = y_pred_adjust[:, 1].data.cpu().numpy()
+                    pred_positive = y_pred_adjust[:, 1].data.cpu().numpy() # prendi le probabilità di appartenenza alla classe positiva
                     y_true_list[i].extend(y_val_adjust)
                     y_pred_list[i].extend(pred_positive)
 
-                loss_list.append(loss.cpu().detach().numpy())
+                loss_list.append(loss.cpu().detach().numpy()) # append the loss to the list
 
 
             all_eval_roc = []
-            for i in range(len(self.tasks)):
-                assert len(y_true_list[i]) == len(y_pred_list[i])
+            for i in range(len(self.tasks)): # per ogni task
+                assert len(y_true_list[i]) == len(y_pred_list[i]) # assicurati che le liste di ground truth e predizioni abbiano la stessa lunghezza
                 evaluator = Evaluator(name='ogbg-molhiv')
-                input_dict = {'y_true': np.array(y_true_list[i]).reshape(-1, 1),
-                              'y_pred': np.array(y_pred_list[i]).reshape(-1, 1)}
+                input_dict = {'y_true': np.array(y_true_list[i]).reshape(-1, 1), 
+                              'y_pred': np.array(y_pred_list[i]).reshape(-1, 1)} # crea un dizionario con le ground truth e le predizioni
                 try:
-                    result_dict = evaluator.eval(input_dict)
-                    eval_roc = list(result_dict.values())[0]
-                    all_eval_roc.append(eval_roc)
+                    result_dict = evaluator.eval(input_dict) # valuta le predizioni rispetto alla ground truth
+                    eval_roc = list(result_dict.values())[0] # prendi il valore della ROC-AUC
+                    all_eval_roc.append(eval_roc) # appendi il valore della ROC-AUC alla lista
                 except:
                     pass
 
-        return np.array(loss_list).mean(), np.array(all_eval_roc).mean()
+        return np.array(loss_list).mean(), np.array(all_eval_roc).mean() # ritorna la media delle loss e delle ROC-AUC
 
 """
 - **Scopo**: Questa classe è orientata verso problemi di regressione, dove l'output è un valore continuo. 

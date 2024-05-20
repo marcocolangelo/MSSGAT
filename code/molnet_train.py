@@ -54,7 +54,11 @@ class All_old2(nn.Module):
 
     def forward(self, data, device):
         _, raw, fp = self.to_device(data, device)
-        raw_h, x_r = self.GATencoder_raw(raw)
+        """GATencoder_raw restituisce 2 cose:
+            - una lista di tensori contenenti le caratteristiche dei nodi per ciascun grafo individuale nel batch quindi dimensione (num_graph,num_nodes_in_graph, hidden_size)
+            - la rappresentazione finale delle caratteristiche per il batch di grafi quindi dimensione (hidden_size)
+            """
+        raw_h, x_r = self.GATencoder_raw(raw) 
         tree = self.test_(data['mol_trees'],raw_h,device)
         self.mol_output, x_t = self.GATencoder(tree)
         x_fp = self.dnn_ecfp(fp)
