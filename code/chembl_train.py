@@ -178,6 +178,8 @@ def model_bulid(weights,tasks):
     print("Model #Params: %dK" % (sum([x.nelement() for x in gcn.parameters()]) / 1000,))
     if not torch.cuda.is_available() and args['gpu'] != -1:
         print('GPU NON RILEVATA!')
+    else:
+        print(f"rilevata GPU: {torch.cuda.get_device_name(0)}")
     device = args['gpu'] if torch.cuda.is_available() and args['gpu'] != -1 else 'cpu'
     optimizer = optim.Adam(gcn.parameters(), lr=0.005)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
