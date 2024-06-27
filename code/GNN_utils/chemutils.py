@@ -227,7 +227,11 @@ degli atomi specificati. Questa rappresentazione SMILES viene poi convertita in 
 che viene modificato per essere editabile con la funzione copy_edit_mol. 
 Infine, la molecola viene "sanificata" con la funzione sanitize e restituita."""
 def get_clique_mol(mol, atoms):
-    smiles = Chem.MolFragmentToSmiles(mol, atoms, kekuleSmiles=True) #take only a part of the molecule
+    try:
+        smiles = Chem.MolFragmentToSmiles(mol, atoms, kekuleSmiles=True) #take only a part of the moleculeù
+    except:
+        print('Error in chemutils/get_clique_mol, restituito None')
+        return None
     new_mol = Chem.MolFromSmiles(smiles, sanitize=False)
     new_mol = copy_edit_mol(new_mol).GetMol()
     new_mol = sanitize(new_mol)  # We assume this is not None

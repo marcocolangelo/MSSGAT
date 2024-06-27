@@ -154,6 +154,7 @@ def data_load():
 
     # Dataloader : generate enable iter object
     train_data = Dataset_multiprocess_ecfp(data_name=dataset_name, data_type='train')
+    print('\n\n\n\ntrain_data:',len(train_data))
     dataloader_trn = DataLoader(train_data, batch_size=args['bs'], shuffle=True, num_workers=0,
                                 collate_fn=Collator_ecfp(), drop_last=False, )
 
@@ -175,7 +176,8 @@ def model_bulid(weights,tasks):
                   head=args['head'],conv=args['conv'],rhead=args['rhead'],rconv=args['rconv'])
 
     print("Model #Params: %dK" % (sum([x.nelement() for x in gcn.parameters()]) / 1000,))
-
+    if not torch.cuda.is_available() and args['gpu'] != -1:
+        print('GPU NON RILEVATA!')
     device = args['gpu'] if torch.cuda.is_available() and args['gpu'] != -1 else 'cpu'
     optimizer = optim.Adam(gcn.parameters(), lr=0.005)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
@@ -305,7 +307,7 @@ if __name__ == "__main__":
         os.makedirs(args['save'])
 
     # vocab_path = './dataset/vocab_tree_zinc.txt'
-    vocab_path = '/home/marco/MSSGAT_paper/MSSGAT/code/dataset/vocabulary_chembl.txt'
+    vocab_path = './code/dataset/vocabulary_chembl.txt'
     print(vocab_path)
     args['vocab'] = vocab_path
 

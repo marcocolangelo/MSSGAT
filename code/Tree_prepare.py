@@ -23,9 +23,9 @@ from GNN_utils import mol_tree
 from GNN_utils import chemutils
 import pandas as pd
 import os
-files = os.listdir('./dataset/chembl_raw')
+files = os.listdir('./code/dataset/chembl_raw_5')
 all = set()
-for file in ('./dataset/chembl_raw/{}'.format(f) for f in files):
+for file in ('./code/dataset/chembl_raw_5/{}'.format(f) for f in files):
     if 'cancer' in file:
         continue
     d = pd.read_csv(file)

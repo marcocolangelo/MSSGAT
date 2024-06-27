@@ -1,0 +1,13 @@
+cairosvg
+dgl
+dgllife
+ipython
+matplotlib
+numpy
+ogb
+pandas
+rdkit
+scikit_learn
+scipy
+torch
+tqdm

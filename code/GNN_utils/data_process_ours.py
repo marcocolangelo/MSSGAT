@@ -53,7 +53,7 @@ def sigleprocess_get_graph_and_save(X, y, vocab_path, data_type, data_name=None,
     assert data_name is not None
     assert data_type in ['train', 'val', 'test'], "data_type must in choices ['train','val','test']"
 
-    save_path = './dataset/graph_data_ours'
+    save_path = './code/dataset/graph_data_ours'
     data_path = save_path + '/' + data_name + '_' + data_type + '.p'
 
     if os.path.exists(data_path) and not reprocess:
@@ -110,6 +110,8 @@ def get_batchs(X,vocab,data_path):
     return_res = []
     for idx,(smiles,label) in enumerate(X):
         mol_tree = DGLMolTree(smiles)  # mol_tree
+        if mol_tree.warning == True:
+            continue
         mol_tree = dgl.add_self_loop(mol_tree)  # mol_tree 是否加自环边
         wid = _set_node_id(mol_tree, vocab)  # idx_cliques
 
@@ -164,13 +166,17 @@ def get_batchs(X,vocab,data_path):
 
         ecfp = get_morgan_fp(smiles)
         result = {'mol_tree': mol_tree, 'wid': wid, 'mol_raw': mol_raw,'label':label,'fp':ecfp}
+        
         return_res.append(result)
 
         print('\r{}/{} molecules to process..'.format(idx + 1, len(X)), end='')
 
     id = os.getpid()
+    print("\n\n\n\nReturn res len: ",len(return_res))
     with open(data_path + f'/{id}.pkl', 'wb') as file:
+        print("\n\n\n\nsave the result to file.. ", data_path + f'/{id}.pkl\n\n\n')
         pickle.dump(return_res, file)
+    #return id
 
 """Descrizione: Preprocessa i dati molecolari utilizzando più processi e li salva in un file.
     Input:
@@ -192,7 +198,7 @@ def multi_process(X,y,data_type,vocab_path, data_name = None,workers=8,reprocess
 
     print(f"Use {workers} cpus to process: ")
 
-    save_path = './dataset/graph_data_ours'
+    save_path = './code/dataset/graph_data_ours'
     data_path = save_path + '/' + data_name + '_' + data_type + '.p'
 
     if os.path.exists(data_path) and not reprocess:
@@ -202,7 +208,7 @@ def multi_process(X,y,data_type,vocab_path, data_name = None,workers=8,reprocess
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    tmp_path = './tmp'
+    tmp_path = './code/tmp'
     if os.path.exists(tmp_path):
         shutil.rmtree(tmp_path) # remove the tmp_path if exists
     os.makedirs(tmp_path)
@@ -244,13 +250,13 @@ __init__(self, data_name, data_type, load_path='./dataset/graph_data_ours'): Ini
 __len__(self): Restituisce il numero di esempi nel dataset.
 __getitem__(self, idx): Restituisce un esempio dal dataset fornito di mol_tree, wid, mol_raw, label e fps."""
 class Dataset_multiprocess_ecfp(Dataset):   # torch.dataset is abstract class, need to override the __len__ and __getitem__
-    def __init__(self,data_name, data_type,load_path='./dataset/graph_data_ours'):
+    def __init__(self,data_name, data_type,load_path='./code/dataset/graph_data_ours'):
         self.data_name = data_name
         self.data_path = load_path + '/' + data_name + '_' + data_type + '.p'
 
         assert os.path.exists(self.data_path),"not exists the path to data.p"
         assert data_type in ['train', 'val', 'test'], "data_type must in choices ['train','val','test']"
-
+        print(f"\n\n\n\ndata path is {self.data_path}\n\n\n\n\n")
         self.data_and_label = pickle.load(open(self.data_path,'rb'))
 
     def __len__(self):
@@ -299,7 +305,7 @@ class Collator_ecfp(object):   # get the batch_data as input, __call__ must be i
 
 """Descrizione: Classe Dataset per caricare altri tipi di dati preprocessati."""
 class Dataset_others(Dataset):   # torch.dataset is abstract class, need to override the __len__ and __getitem__
-    def __init__(self,data_name, data_type,load_path='./dataset/graph_data_ours'):
+    def __init__(self,data_name, data_type,load_path='./code/dataset/graph_data_ours'):
         self.data_name = data_name
         self.data_path = load_path + '/' + data_name + '_' + data_type + '.p'
 

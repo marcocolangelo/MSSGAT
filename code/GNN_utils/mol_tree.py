@@ -110,6 +110,7 @@ class DGLMolTree(DGLGraph):
     def __init__(self, smiles):
         DGLGraph.__init__(self)
         self.nodes_dict = {}
+        self.warning = False
 
         if smiles is None:
             print("\n\n\n\n#############SMILES string is None#############\n\n\n\n")
@@ -127,6 +128,10 @@ class DGLMolTree(DGLGraph):
         root = 0
         for i, c in enumerate(cliques):
             cmol = get_clique_mol(self.mol, c)
+            if cmol is None:
+                print("C'è una clique anomala nella molecola: ", smiles, " con clique: ", c, "\n\n\n\n")
+                self.warning = True
+                return
             csmiles = get_smiles(cmol)
             self.nodes_dict[i] = dict(
                 smiles=csmiles,
